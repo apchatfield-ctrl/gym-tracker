@@ -27,8 +27,8 @@ const SESSIONS = [
     id: "push-a", label: "Push A", emoji: "💪", accent: "#E8572A",
     sections: [{ title: "Main Work", exercises: [
       { name: "Dumbbell Bench Press", sets: 3, reps: "8–10" },
-      { name: "Incline DB Press", sets: 3, reps: "10" },
       { name: "Seated DB Shoulder Press", sets: 3, reps: "10" },
+      { name: "Cable Chest Fly", sets: 3, reps: "12" },
       { name: "Lateral Raises", sets: 3, reps: "12–15" },
       { name: "Tricep Pushdowns (cable)", sets: 3, reps: "12" },
     ]}],
@@ -37,8 +37,8 @@ const SESSIONS = [
     id: "pull-a", label: "Pull A", emoji: "🔙", accent: "#2AE87B",
     sections: [{ title: "Main Work", exercises: [
       { name: "Pull-Ups / Assisted Pull-Ups", sets: 3, reps: "max/8" },
-      { name: "Lat Pulldown", sets: 3, reps: "10" },
       { name: "Seated Cable Row", sets: 3, reps: "10" },
+      { name: "Straight Arm Pulldown", sets: 3, reps: "12" },
       { name: "Face Pulls", sets: 3, reps: "15" },
       { name: "Bicep Curls", sets: 3, reps: "12" },
     ]}],
@@ -68,7 +68,7 @@ const SESSIONS = [
     id: "push-b", label: "Push B", emoji: "🔥", accent: "#E8C22A",
     sections: [{ title: "Main Work", exercises: [
       { name: "Barbell / DB Bench Press", sets: 4, reps: "6–8" },
-      { name: "Cable Chest Fly", sets: 3, reps: "12" },
+      { name: "Incline DB Press", sets: 3, reps: "10" },
       { name: "Arnold Press", sets: 3, reps: "10" },
       { name: "Lateral Raises", sets: 3, reps: "15" },
       { name: "Skull Crushers", sets: 3, reps: "10" },
@@ -87,9 +87,7 @@ const SESSIONS = [
 ];
 
 const CYCLE_LENGTH = SESSIONS.length;
-const STORAGE_KEY = "gym-tracker-v1";
-const WEBHOOK_KEY = "gym-tracker-webhook";
-const DEFAULT_WEBHOOK = "https://script.google.com/macros/s/AKfycbxmCDsAhKXkdXybxQFY1oDmA6_-ChFPaomnPSfRb3kR-EfBWkiouAd9v4fpkYI6TAIp/exec";
+const STORAGE_KEY = "gym-tracker-v2";
 
 function todayDateStr() {
   return new Date().toISOString().slice(0, 10);
@@ -111,48 +109,6 @@ function saveState(state) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) { console.error("Save failed", e); }
-}
-
-function loadWebhook() {
-  return localStorage.getItem(WEBHOOK_KEY) || "";
-}
-
-function saveWebhook(url) {
-  localStorage.setItem(WEBHOOK_KEY, url);
-}
-
-async function exportToSheets(webhookUrl, completed, sessionDef) {
-  if (!webhookUrl) return { ok: false, reason: "no-url" };
-  const rows = [];
-  const dateStr = new Date(completed.date + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-  sessionDef.sections.forEach((sec, si) => {
-    sec.exercises.forEach((ex, ei) => {
-      for (let setIdx = 0; setIdx < ex.sets; setIdx++) {
-        const setData = completed.data?.[si]?.[ei]?.[setIdx];
-        rows.push({
-          date: dateStr,
-          sessionNumber: completed.sessionNumber,
-          sessionName: completed.label,
-          exercise: ex.name,
-          set: setIdx + 1,
-          weight: setData?.weight || "",
-          reps: setData?.reps || "",
-          completed: setData?.done ? "Yes" : "No",
-        });
-      }
-    });
-  });
-  const payload = JSON.stringify({ rows });
-  try {
-    const res = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: payload,
-    });
-    return { ok: res.ok };
-  } catch (e) {
-    return { ok: false, reason: e.message };
-  }
 }
 
 function getSessionProgress(session, data) {
@@ -201,6 +157,24 @@ function ExerciseCard({ exercise, accent, sectionIdx, exIdx, sessionData, onUpda
   const doneCount = sets.filter((_, i) => sessionData?.[sectionIdx]?.[exIdx]?.[i]?.done).length;
   const allDone = doneCount === exercise.sets;
 
+  function completeAll() {
+    // Find the first set that has weight/reps filled in to use as template
+    const template = sets.reduce((found, _, i) => {
+      if (found) return found;
+      const d = sessionData?.[sectionIdx]?.[exIdx]?.[i];
+      if (d?.weight || d?.reps) return d;
+      return null;
+    }, null);
+
+    sets.forEach((_, i) => {
+      const existing = sessionData?.[sectionIdx]?.[exIdx]?.[i] || {};
+      const weight = existing.weight || template?.weight || "";
+      const reps = existing.reps || template?.reps || "";
+      onUpdate(sectionIdx, exIdx, i, { ...existing, weight, reps, done: true });
+    });
+    setExpanded(true);
+  }
+
   return (
     <div style={{ background: allDone ? "#0f1f0f" : "#1a1a1a", border: `1px solid ${allDone ? accent + "66" : expanded ? "#333" : "#222"}`, borderRadius: 13, marginBottom: 10, overflow: "hidden" }}>
       <button onClick={() => setExpanded(!expanded)}
@@ -214,6 +188,17 @@ function ExerciseCard({ exercise, accent, sectionIdx, exIdx, sessionData, onUpda
           <div style={{ color: "#555", fontSize: 14 }}>{expanded ? "▲" : "▼"}</div>
         </div>
       </button>
+
+      {/* Complete all sets button — always visible */}
+      {!allDone && (
+        <div style={{ padding: "0 14px 10px" }}>
+          <button onClick={completeAll}
+            style={{ width: "100%", background: accent + "22", border: `1px solid ${accent}44`, borderRadius: 8, padding: "7px", color: accent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            ✓ Complete all {exercise.sets} sets
+          </button>
+        </div>
+      )}
+
       {expanded && (
         <div style={{ padding: "0 14px 12px" }}>
           {!isCore && (
@@ -300,9 +285,6 @@ function App() {
   const [historyModal, setHistoryModal] = useState(null);
   const [confirmComplete, setConfirmComplete] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [webhookInput, setWebhookInput] = useState("");
-  const [syncStatus, setSyncStatus] = useState(null); // null | "syncing" | "ok" | "fail"
 
   useEffect(() => {
     const saved = loadState();
@@ -312,9 +294,6 @@ function App() {
       setActiveData(saved.activeData ?? {});
       setCompletedSessions(saved.completedSessions ?? []);
     }
-    const wh = loadWebhook() || DEFAULT_WEBHOOK;
-    setWebhookUrl(wh);
-    setWebhookInput(wh);
     setLoaded(true);
   }, []);
 
@@ -337,7 +316,7 @@ function App() {
     });
   }, [currentSessionIdx]);
 
-  async function handleCompleteSession() {
+  function handleCompleteSession() {
     const completed = {
       sessionNumber, sessionIdx: currentSessionIdx % CYCLE_LENGTH,
       label: session.label, emoji: session.emoji, accent: session.accent,
@@ -348,19 +327,6 @@ function App() {
     setSessionNumber(prev => prev + 1);
     setActiveData({});
     setConfirmComplete(false);
-
-    // Auto-export to Google Sheets if webhook configured
-    if (webhookUrl) {
-      setSyncStatus("syncing");
-      const result = await exportToSheets(webhookUrl, completed, session);
-      setSyncStatus(result.ok ? "ok" : "fail");
-      setTimeout(() => setSyncStatus(null), 4000);
-    }
-  }
-
-  function saveWebhookSetting() {
-    setWebhookUrl(webhookInput);
-    saveWebhook(webhookInput);
   }
 
   const { total, done } = getSessionProgress(session, activeData);
@@ -372,15 +338,6 @@ function App() {
     <div style={{ background: "#111", minHeight: "100vh", color: "#fff", maxWidth: 430, margin: "0 auto" }}>
 
       {historyModal && <HistoryModal exerciseName={historyModal} completedSessions={completedSessions} accent={session.accent} onClose={() => setHistoryModal(null)} />}
-
-      {/* Sync status banner */}
-      {syncStatus && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 200, textAlign: "center", padding: "12px", background: syncStatus === "ok" ? "#1a3a1a" : syncStatus === "fail" ? "#3a1a1a" : "#1a1a2a", borderBottom: `1px solid ${syncStatus === "ok" ? "#2a6a2a" : syncStatus === "fail" ? "#6a2a2a" : "#2a2a6a"}`, fontSize: 13, fontWeight: 600, color: syncStatus === "ok" ? "#4ae84a" : syncStatus === "fail" ? "#e84a4a" : "#aaa" }}>
-          {syncStatus === "syncing" && "⏳ Syncing to Google Sheets..."}
-          {syncStatus === "ok" && "✓ Synced to Google Sheets"}
-          {syncStatus === "fail" && "⚠ Sync failed — check your webhook URL in Settings"}
-        </div>
-      )}
 
       {confirmComplete && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -430,7 +387,7 @@ function App() {
           ))}
         </div>
         <div style={{ display: "flex", gap: 6, paddingBottom: 12 }}>
-          {[["session", "Session"], ["upnext", "Up Next"], ["history", "History"], ["settings", "⚙"]].map(([v, label]) => (
+          {[["session", "Session"], ["upnext", "Up Next"], ["history", "History"]].map(([v, label]) => (
             <button key={v} onClick={() => setView(v)}
               style={{ background: view === v ? "#2a2a2a" : "transparent", border: "none", color: view === v ? "#fff" : "#555", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
               {label}
@@ -518,65 +475,15 @@ function App() {
                     </div>
                     <div style={{ color: s.accent, fontWeight: 700, fontSize: 13 }}>{d}/{t} sets</div>
                   </div>
-                  <div style={{ background: "#222", borderRadius: 3, height: 3, marginTop: 10, marginBottom: 10 }}>
+                  <div style={{ background: "#222", borderRadius: 3, height: 3, marginTop: 10 }}>
                     <div style={{ width: `${t > 0 ? Math.round((d / t) * 100) : 0}%`, height: "100%", background: s.accent, borderRadius: 3 }} />
                   </div>
-                  <button onClick={async () => {
-                    setSyncStatus("syncing");
-                    const result = await exportToSheets(webhookUrl, s, sessionDef);
-                    setSyncStatus(result.ok ? "ok" : "fail");
-                    setTimeout(() => setSyncStatus(null), 4000);
-                  }} style={{ width: "100%", background: "#222", border: "1px solid #333", borderRadius: 8, padding: "7px", color: "#888", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                    ↑ Sync to Google Sheets
-                  </button>
                 </div>
               );
             })}
           </div>
         )}
-
-        {view === "settings" && (
-          <div>
-            <div style={{ fontSize: 13, color: "#555", marginBottom: 20 }}>Connect your Google Sheet so sessions auto-sync when you complete them.</div>
-
-            <div style={{ background: "#1a1a1a", border: "1px solid #222", borderRadius: 14, padding: 16, marginBottom: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Google Sheets Webhook URL</div>
-              <div style={{ fontSize: 12, color: "#555", marginBottom: 12, lineHeight: 1.5 }}>
-                Paste your Google Apps Script Web App URL here. See setup guide below.
-              </div>
-              <input
-                type="url"
-                placeholder="https://script.google.com/macros/s/..."
-                value={webhookInput}
-                onChange={e => setWebhookInput(e.target.value)}
-                style={{ width: "100%", background: "#222", border: "1px solid #333", borderRadius: 8, color: "#fff", fontSize: 13, padding: "10px 12px", outline: "none", marginBottom: 10 }}
-              />
-              <button onClick={saveWebhookSetting}
-                style={{ width: "100%", background: "#2a2a2a", border: "1px solid #444", borderRadius: 10, padding: "10px", color: webhookInput ? "#fff" : "#555", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-                {webhookUrl ? "Update URL" : "Save URL"}
-              </button>
-              {webhookUrl && <div style={{ fontSize: 11, color: "#4ae84a", marginTop: 8, textAlign: "center" }}>✓ Webhook configured — sessions will auto-sync</div>}
-            </div>
-
-            <div style={{ background: "#1a1a1a", border: "1px solid #222", borderRadius: 14, padding: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📋 Setup Guide</div>
-              {[
-                ["1", "Go to sheets.google.com and create a new sheet. Name row 1 headers: Date, Session #, Session Name, Exercise, Set, Weight (kg), Reps, Completed"],
-                ["2", "Click Extensions → Apps Script"],
-                ["3", "Delete any existing code and paste in the Apps Script code (ask Claude for it)"],
-                ["4", "Click Deploy → New deployment → Web app"],
-                ["5", "Set 'Execute as' to Me, 'Who has access' to Anyone. Click Deploy"],
-                ["6", "Copy the Web App URL and paste it above"],
-              ].map(([num, text]) => (
-                <div key={num} style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-                  <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#333", color: "#aaa", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>{num}</div>
-                  <div style={{ fontSize: 13, color: "#888", lineHeight: 1.5 }}>{text}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        </div>
+      </div>
     </div>
   );
 }
