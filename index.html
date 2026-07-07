@@ -453,6 +453,18 @@ function App() {
                       </div>
                     ))}
                   </div>
+                  {!isCurrent && (
+                    <button onClick={() => {
+                      if (window.confirm(`Skip to ${s.label}? Sessions in between will be skipped.`)) {
+                        setCurrentSessionIdx(prev => prev + stepsAhead);
+                        setSessionNumber(prev => prev + stepsAhead);
+                        setActiveData({});
+                        setView("session");
+                      }
+                    }} style={{ marginTop: 10, width: "100%", background: "#1e1e1e", border: `1px solid ${s.accent}44`, borderRadius: 8, padding: "7px", color: s.accent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                      ⏭ Skip to {s.label}
+                    </button>
+                  )}
                 </div>
               );
             })}
